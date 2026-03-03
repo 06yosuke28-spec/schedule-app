@@ -1,0 +1,661 @@
+import { useState, useMemo, useCallback, useRef, useEffect } from "react";
+
+// ─── Constants ───
+const DAYS_JP = ["日","月","火","水","木","金","土"];
+const MONTHS_JP = ["1月","2月","3月","4月","5月","6月","7月","8月","9月","10月","11月","12月"];
+const HOURS = Array.from({length:15},(_,i)=>i+8); // 8:00-22:00
+
+const CATEGORIES = {
+  lesson:{label:"レッスン",color:"#6D28D9",bg:"#EDE9FE",icon:"📖"},
+  exam:{label:"テスト",color:"#DC2626",bg:"#FEE2E2",icon:"📝"},
+  meeting:{label:"面談",color:"#D97706",bg:"#FEF3C7",icon:"🤝"},
+  practice:{label:"自習",color:"#059669",bg:"#D1FAE5",icon:"✏️"},
+  school:{label:"学校行事",color:"#2563EB",bg:"#DBEAFE",icon:"🏫"},
+  other:{label:"その他",color:"#6B7280",bg:"#F3F4F6",icon:"📌"},
+};
+
+const STATUS = {
+  pending:{label:"承認待ち",color:"#D97706",bg:"#FEF3C7",dot:"#F59E0B"},
+  approved:{label:"承認済み",color:"#059669",bg:"#D1FAE5",dot:"#10B981"},
+  rejected:{label:"却下",color:"#DC2626",bg:"#FEE2E2",dot:"#EF4444"},
+  school:{label:"学校行事",color:"#2563EB",bg:"#DBEAFE",dot:"#3B82F6"},
+};
+
+const AVATARS = ["🧑","👧","👦","👩","🧒","👱","👧","🧑‍🦱","👩‍🦰","👦"];
+const COLORS = ["#8B5CF6","#EC4899","#06B6D4","#F59E0B","#10B981","#F472B6","#3B82F6","#A855F7","#14B8A6","#E11D48","#8B5CF6","#059669"];
+
+const initStudents = [
+  {id:"s1",name:"田中 太郎",school:"市立第一中学校",grade:"中2",color:"#8B5CF6",avatar:"🧑"},
+  {id:"s2",name:"佐藤 花子",school:"市立第一中学校",grade:"中3",color:"#EC4899",avatar:"👧"},
+  {id:"s3",name:"鈴木 一郎",school:"県立北高校",grade:"高1",color:"#06B6D4",avatar:"👦"},
+  {id:"s4",name:"高橋 美咲",school:"市立第二中学校",grade:"中1",color:"#F59E0B",avatar:"👩"},
+  {id:"s5",name:"伊藤 健太",school:"県立北高校",grade:"高2",color:"#10B981",avatar:"🧑"},
+  {id:"s6",name:"渡辺 さくら",school:"市立第一中学校",grade:"中2",color:"#F472B6",avatar:"👧"},
+  {id:"s7",name:"山本 大輔",school:"市立第二中学校",grade:"中3",color:"#3B82F6",avatar:"👦"},
+  {id:"s8",name:"中村 あかり",school:"県立南高校",grade:"高1",color:"#A855F7",avatar:"👩"},
+  {id:"s9",name:"小林 翔",school:"市立第一中学校",grade:"中1",color:"#14B8A6",avatar:"🧑"},
+  {id:"s10",name:"加藤 結衣",school:"県立南高校",grade:"高2",color:"#E11D48",avatar:"👧"},
+];
+
+const initEvents = [
+  {id:1,title:"英語レッスン",date:"2026-03-03",time:"16:00",endTime:"17:00",category:"lesson",studentId:"s1",status:"approved",note:"Unit 5",studentComment:"了解です",repeat:null},
+  {id:2,title:"数学テスト対策",date:"2026-03-04",time:"15:00",endTime:"17:00",category:"exam",studentId:"s2",status:"pending",note:"二次関数",studentComment:"",repeat:null},
+  {id:3,title:"英語レッスン",date:"2026-03-04",time:"17:30",endTime:"18:30",category:"lesson",studentId:"s3",status:"approved",note:"Reading",studentComment:"",repeat:null},
+  {id:4,title:"面談",date:"2026-03-05",time:"18:00",endTime:"18:30",category:"meeting",studentId:"s1",status:"pending",note:"進路相談",studentComment:"",repeat:null},
+  {id:5,title:"英語レッスン",date:"2026-03-06",time:"16:00",endTime:"17:00",category:"lesson",studentId:"s4",status:"approved",note:"",studentComment:"",repeat:null},
+  {id:6,title:"理科レッスン",date:"2026-03-06",time:"17:00",endTime:"18:00",category:"lesson",studentId:"s5",status:"approved",note:"化学反応",studentComment:"了解しました！",repeat:null},
+  {id:7,title:"英語レッスン",date:"2026-03-07",time:"10:00",endTime:"11:00",category:"lesson",studentId:"s6",status:"approved",note:"",studentComment:"",repeat:null},
+  {id:8,title:"数学レッスン",date:"2026-03-03",time:"18:00",endTime:"19:00",category:"lesson",studentId:"s7",status:"pending",note:"方程式",studentComment:"",repeat:null},
+];
+
+const initMessages = [
+  {id:1,studentId:"s1",from:"instructor",text:"来週のレッスンは16時からでよろしいですか？",time:"2026-03-02T10:00"},
+  {id:2,studentId:"s1",from:"student",text:"はい、大丈夫です！",time:"2026-03-02T10:15"},
+  {id:3,studentId:"s2",from:"instructor",text:"テスト対策の範囲を送りますね。",time:"2026-03-01T14:00"},
+];
+
+const initSchoolEvents = [
+  {id:"se1",title:"中間テスト",date:"2026-03-16",endDate:"2026-03-18",school:"市立第一中学校",category:"school"},
+  {id:"se2",title:"体育祭",date:"2026-03-25",endDate:null,school:"県立北高校",category:"school"},
+];
+
+// ─── Utils ───
+function getDIM(y,m){return new Date(y,m+1,0).getDate();}
+function getFD(y,m){return new Date(y,m,1).getDay();}
+function fmt(y,m,d){return `${y}-${String(m+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;}
+function pD(s){const p=s.split("-");return{y:+p[0],m:+p[1],d:+p[2]};}
+function addDays(ds,n){const d=new Date(ds);d.setDate(d.getDate()+n);return fmt(d.getFullYear(),d.getMonth(),d.getDate());}
+function getWeekDates(ds){const d=new Date(ds);const day=d.getDay();const mon=new Date(d);mon.setDate(d.getDate()-day);return Array.from({length:7},(_,i)=>{const x=new Date(mon);x.setDate(mon.getDate()+i);return fmt(x.getFullYear(),x.getMonth(),x.getDate());});}
+function timeToY(t){const[h,m]=t.split(":").map(Number);return(h-8)*60+m;}
+function genId(){return Date.now()+Math.random()*1000|0;}
+
+// ─── Icons ───
+const I={
+  chevL:()=><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>,
+  chevR:()=><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>,
+  close:()=><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>,
+  plus:()=><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>,
+  back:()=><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>,
+  send:()=><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>,
+  chart:()=><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>,
+  msg:()=><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>,
+  edit:()=><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>,
+  trash:()=><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>,
+  repeat:()=><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 014-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 01-4 4H3"/></svg>,
+  user:()=><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>,
+};
+
+// ─── Modal ───
+function Modal({isOpen,onClose,title,children,wide}){
+  if(!isOpen)return null;
+  return(<div onClick={onClose} style={{position:"fixed",inset:0,zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(10,15,30,.55)",backdropFilter:"blur(8px)",animation:"fadeIn .15s"}}>
+    <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:20,width:wide?"min(600px,95vw)":"min(440px,93vw)",maxHeight:"90vh",overflow:"auto",boxShadow:"0 25px 60px rgba(0,0,0,.22)",padding:"22px 22px 18px",animation:"slideUp .2s ease"}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+        <h3 style={{fontSize:16,fontWeight:800,color:"#0F172A",margin:0,fontFamily:"var(--f)"}}>{title}</h3>
+        <button onClick={onClose} style={{background:"#F1F5F9",border:"none",borderRadius:9,width:32,height:32,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:"#64748B"}}><I.close/></button>
+      </div>{children}
+    </div>
+  </div>);
+}
+function Badge({status}){const s=STATUS[status];if(!s)return null;return<span style={{display:"inline-flex",alignItems:"center",gap:3,fontSize:9,fontWeight:700,padding:"2px 7px",borderRadius:6,color:s.color,background:s.bg,fontFamily:"var(--f)",whiteSpace:"nowrap"}}><span style={{width:5,height:5,borderRadius:"50%",background:s.dot}}/>{s.label}</span>;}
+function CatBadge({cat}){const c=CATEGORIES[cat];if(!c)return null;return<span style={{fontSize:9,fontWeight:600,padding:"2px 6px",borderRadius:5,color:c.color,background:c.bg,fontFamily:"var(--f)"}}>{c.icon} {c.label}</span>;}
+
+// ─── Tab Button ───
+function Tab({active,onClick,children}){return<button onClick={onClick} style={{padding:"6px 14px",borderRadius:9,border:"none",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"var(--f)",background:active?"#0F172A":"#fff",color:active?"#fff":"#64748B",boxShadow:"0 1px 3px rgba(0,0,0,.05)",transition:"all .15s"}}>{children}</button>;}
+
+// ═══════════════════ MAIN APP ═══════════════════
+export default function App(){
+  const today=new Date();
+  const todayStr=fmt(today.getFullYear(),today.getMonth(),today.getDate());
+  const[year,setYear]=useState(today.getFullYear());
+  const[month,setMonth]=useState(today.getMonth());
+  const[students,setStudents]=useState(initStudents);
+  const[events,setEvents]=useState(initEvents);
+  const[schoolEvents,setSchoolEvents]=useState(initSchoolEvents);
+  const[messages,setMessages]=useState(initMessages);
+  const[selDate,setSelDate]=useState(todayStr);
+  const[selStudent,setSelStudent]=useState(null);
+  const[role,setRole]=useState("instructor");
+  const[view,setView]=useState("month"); // month|week|list
+  const[page,setPage]=useState("home"); // home|calendar|stats|chat
+  const[showAdd,setShowAdd]=useState(false);
+  const[showDetail,setShowDetail]=useState(null);
+  const[showEdit,setShowEdit]=useState(null);
+  const[showStudentForm,setShowStudentForm]=useState(null); // null|"add"|student obj
+  const[commentDraft,setCommentDraft]=useState("");
+  const[chatInput,setChatInput]=useState("");
+  const[searchQ,setSearchQ]=useState("");
+  const[dragEv,setDragEv]=useState(null);
+  const[form,setForm]=useState({title:"",time:"16:00",endTime:"17:00",category:"lesson",note:"",studentId:"s1",repeatWeeks:0});
+  const[studentForm,setStudentForm]=useState({name:"",school:"",grade:"",avatar:"🧑",color:"#8B5CF6"});
+
+  const isI=role==="instructor";
+  const nextId=useCallback(()=>Math.max(...events.map(e=>e.id),0)+1,[events]);
+  const stObj=selStudent?students.find(s=>s.id===selStudent):null;
+
+  // Events map including school events
+  const allEventsForStudent=useMemo(()=>{
+    let evs=events;
+    if(selStudent)evs=evs.filter(e=>e.studentId===selStudent);
+    return evs;
+  },[events,selStudent]);
+
+  const evMap=useMemo(()=>{
+    const m={};
+    allEventsForStudent.forEach(ev=>{if(!m[ev.date])m[ev.date]=[];m[ev.date].push(ev);});
+    schoolEvents.forEach(se=>{
+      if(selStudent){const st=students.find(s=>s.id===selStudent);if(st&&st.school!==se.school)return;}
+      let cur=new Date(se.date);const end=se.endDate?new Date(se.endDate):cur;
+      while(cur<=end){const ds=fmt(cur.getFullYear(),cur.getMonth(),cur.getDate());if(!m[ds])m[ds]=[];if(!m[ds].find(x=>x.id===se.id))m[ds].push({...se,status:"school",time:"終日",endTime:"",note:se.school,studentComment:""});cur.setDate(cur.getDate()+1);}
+    });
+    return m;
+  },[allEventsForStudent,schoolEvents,selStudent,students]);
+
+  const totalPending=events.filter(e=>e.status==="pending").length;
+  const pendingFor=sid=>events.filter(e=>e.studentId===sid&&e.status==="pending").length;
+
+  // Nav
+  const prevMonth=()=>{if(month===0){setMonth(11);setYear(y=>y-1);}else setMonth(m=>m-1);};
+  const nextMonth=()=>{if(month===11){setMonth(0);setYear(y=>y+1);}else setMonth(m=>m+1);};
+  const weekDates=useMemo(()=>getWeekDates(selDate),[selDate]);
+  const prevWeek=()=>setSelDate(addDays(selDate,-7));
+  const nextWeek=()=>setSelDate(addDays(selDate,7));
+
+  // CRUD Events
+  const addEvent=()=>{
+    if(!form.title.trim())return;
+    const base={title:form.title,time:form.time,endTime:form.endTime,category:form.category,studentId:selStudent||form.studentId,status:"pending",note:form.note,studentComment:"",repeat:form.repeatWeeks>0?form.repeatWeeks:null};
+    const newEvs=[];
+    const weeks=form.repeatWeeks||0;
+    for(let w=0;w<=weeks;w++){
+      newEvs.push({...base,id:nextId()+w,date:addDays(selDate,w*7)});
+    }
+    setEvents(p=>[...p,...newEvs]);
+    setForm({title:"",time:"16:00",endTime:"17:00",category:"lesson",note:"",studentId:selStudent||"s1",repeatWeeks:0});
+    setShowAdd(false);
+  };
+  const updateEvent=()=>{
+    if(!form.title.trim()||!showEdit)return;
+    setEvents(p=>p.map(e=>e.id===showEdit.id?{...e,title:form.title,time:form.time,endTime:form.endTime,category:form.category,note:form.note,status:"pending",studentComment:""}:e));
+    setShowEdit(null);setShowDetail(null);
+  };
+  const deleteEvent=id=>{setEvents(p=>p.filter(e=>e.id!==id));setShowDetail(null);};
+  const approveEv=id=>{setEvents(p=>p.map(e=>e.id===id?{...e,status:"approved",studentComment:commentDraft}:e));setCommentDraft("");};
+  const rejectEv=id=>{setEvents(p=>p.map(e=>e.id===id?{...e,status:"rejected",studentComment:commentDraft}:e));setCommentDraft("");};
+
+  // Drag & Drop
+  const handleDrop=(targetDate)=>{
+    if(!dragEv)return;
+    setEvents(p=>p.map(e=>e.id===dragEv.id?{...e,date:targetDate,status:"pending"}:e));
+    setDragEv(null);
+  };
+
+  // Student CRUD
+  const saveStudent=()=>{
+    if(!studentForm.name.trim())return;
+    if(showStudentForm==="add"){
+      setStudents(p=>[...p,{id:"s"+genId(),name:studentForm.name,school:studentForm.school,grade:studentForm.grade,avatar:studentForm.avatar,color:studentForm.color}]);
+    }else{
+      setStudents(p=>p.map(s=>s.id===showStudentForm.id?{...s,...studentForm}:s));
+    }
+    setShowStudentForm(null);
+  };
+  const deleteStudent=id=>{setStudents(p=>p.filter(s=>s.id!==id));setEvents(p=>p.filter(e=>e.studentId!==id));if(selStudent===id)setSelStudent(null);setShowStudentForm(null);};
+
+  // Messages
+  const sendMsg=()=>{
+    if(!chatInput.trim()||!selStudent)return;
+    setMessages(p=>[...p,{id:genId(),studentId:selStudent,from:isI?"instructor":"student",text:chatInput,time:new Date().toISOString()}]);
+    setChatInput("");
+  };
+  const studentMsgs=useMemo(()=>messages.filter(m=>m.studentId===selStudent).sort((a,b)=>a.time.localeCompare(b.time)),[messages,selStudent]);
+
+  // Stats
+  const statsFor=sid=>{
+    const sevs=events.filter(e=>e.studentId===sid);
+    const approved=sevs.filter(e=>e.status==="approved").length;
+    const pending=sevs.filter(e=>e.status==="pending").length;
+    const rejected=sevs.filter(e=>e.status==="rejected").length;
+    const byCat={};sevs.forEach(e=>{byCat[e.category]=(byCat[e.category]||0)+1;});
+    const totalHrs=sevs.filter(e=>e.status==="approved").reduce((a,e)=>{
+      const[h1,m1]=(e.time||"0:0").split(":").map(Number);
+      const[h2,m2]=(e.endTime||"0:0").split(":").map(Number);
+      return a+((h2*60+m2)-(h1*60+m1))/60;
+    },0);
+    return{total:sevs.length,approved,pending,rejected,byCat,totalHrs:totalHrs.toFixed(1)};
+  };
+
+  const filteredStudents=students.filter(s=>s.name.includes(searchQ)||s.school.includes(searchQ)||s.grade.includes(searchQ));
+
+  const inp={width:"100%",padding:"8px 12px",border:"2px solid #E2E8F0",borderRadius:10,fontSize:13,outline:"none",fontFamily:"var(--f)",boxSizing:"border-box",background:"#FAFBFC"};
+  const lbl={display:"block",fontSize:11,fontWeight:600,color:"#64748B",marginBottom:4,fontFamily:"var(--f)"};
+
+  // Calendar cells
+  const calCells=useMemo(()=>{const c=[];const fd=getFD(year,month);for(let i=0;i<fd;i++)c.push(null);for(let d=1;d<=getDIM(year,month);d++)c.push(d);return c;},[year,month]);
+
+  return(
+    <div style={{"--f":"'Noto Sans JP','Hiragino Sans',sans-serif",fontFamily:"var(--f)",background:"#F1F5F9",minHeight:"100vh",maxWidth:480,margin:"0 auto",position:"relative",paddingBottom:64}}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@300;400;500;600;700;800;900&display=swap');
+        @keyframes fadeIn{from{opacity:0}to{opacity:1}}
+        @keyframes slideUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+        *{box-sizing:border-box}
+        input:focus,select:focus,textarea:focus{border-color:#818CF8!important;background:#fff!important}
+        ::-webkit-scrollbar{width:3px}::-webkit-scrollbar-thumb{background:#CBD5E1;border-radius:3px}
+        button:active{transform:scale(.97)}
+        .drag-over{background:#EEF2FF!important;border-color:#818CF8!important}
+      `}</style>
+
+      {/* ══ HEADER ══ */}
+      <div style={{background:"linear-gradient(135deg,#1E1B4B 0%,#3730A3 40%,#4F46E5 100%)",padding:"14px 16px 10px",color:"#fff",borderRadius:"0 0 20px 20px",boxShadow:"0 6px 24px rgba(79,70,229,.3)"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+          <h1 style={{fontSize:16,fontWeight:900,margin:0}}>📅 スケジュール管理</h1>
+          <div style={{display:"flex",gap:4}}>
+            {totalPending>0&&<span style={{background:"rgba(251,191,36,.9)",color:"#78350F",fontSize:10,fontWeight:800,padding:"3px 8px",borderRadius:8}}>{totalPending}件待ち</span>}
+          </div>
+        </div>
+        <div style={{display:"flex",gap:4,background:"rgba(0,0,0,.2)",borderRadius:10,padding:3}}>
+          {[{k:"instructor",l:"👨‍🏫 講師"},{k:"student",l:"🎓 生徒"}].map(r=>(
+            <button key={r.k} onClick={()=>{setRole(r.k);if(r.k==="student"&&!selStudent)setSelStudent("s1");}} style={{flex:1,padding:"7px 0",borderRadius:8,border:"none",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"var(--f)",background:role===r.k?"#fff":"transparent",color:role===r.k?"#4F46E5":"rgba(255,255,255,.85)",boxShadow:role===r.k?"0 2px 6px rgba(0,0,0,.1)":"none",transition:"all .2s"}}>{r.l}</button>
+          ))}
+        </div>
+      </div>
+
+      {/* ══ BOTTOM NAV ══ */}
+      <div style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:480,background:"#fff",borderTop:"1px solid #E2E8F0",display:"flex",zIndex:900,boxShadow:"0 -2px 10px rgba(0,0,0,.05)"}}>
+        {[{k:"home",l:"ホーム",ic:"🏠"},{k:"calendar",l:"カレンダー",ic:"📅"},{k:"stats",l:"統計",ic:"📊"},{k:"chat",l:"メッセージ",ic:"💬"}].map(n=>(
+          <button key={n.k} onClick={()=>setPage(n.k)} style={{flex:1,padding:"8px 0 6px",border:"none",background:"transparent",cursor:"pointer",fontFamily:"var(--f)",display:"flex",flexDirection:"column",alignItems:"center",gap:2,color:page===n.k?"#4F46E5":"#94A3B8",transition:"color .15s"}}>
+            <span style={{fontSize:18}}>{n.ic}</span>
+            <span style={{fontSize:9,fontWeight:700}}>{n.l}</span>
+          </button>
+        ))}
+      </div>
+
+      {/* ══════════ HOME PAGE ══════════ */}
+      {page==="home"&&!selStudent&&(
+        <div style={{padding:"12px 14px",animation:"fadeIn .2s"}}>
+          <div style={{display:"flex",gap:6,marginBottom:10}}>
+            <div style={{position:"relative",flex:1}}>
+              <input value={searchQ} onChange={e=>setSearchQ(e.target.value)} placeholder="生徒を検索..." style={{...inp,paddingLeft:10,fontSize:12}}/>
+            </div>
+            {isI&&<button onClick={()=>{setStudentForm({name:"",school:"",grade:"",avatar:AVATARS[students.length%AVATARS.length],color:COLORS[students.length%COLORS.length]});setShowStudentForm("add");}} style={{background:"#4F46E5",color:"#fff",border:"none",borderRadius:10,padding:"0 12px",cursor:"pointer",display:"flex",alignItems:"center",gap:3,fontSize:11,fontWeight:700,fontFamily:"var(--f)",whiteSpace:"nowrap"}}><I.plus/> 生徒追加</button>}
+          </div>
+
+          {/* Stats summary */}
+          <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:6,marginBottom:12}}>
+            <div style={{background:"#FEF3C7",borderRadius:10,padding:"8px",textAlign:"center"}}><div style={{fontSize:18,fontWeight:800,color:"#D97706"}}>{totalPending}</div><div style={{fontSize:9,fontWeight:600,color:"#92400E"}}>承認待ち</div></div>
+            <div style={{background:"#D1FAE5",borderRadius:10,padding:"8px",textAlign:"center"}}><div style={{fontSize:18,fontWeight:800,color:"#059669"}}>{events.filter(e=>e.status==="approved").length}</div><div style={{fontSize:9,fontWeight:600,color:"#065F46"}}>確定</div></div>
+            <div style={{background:"#EDE9FE",borderRadius:10,padding:"8px",textAlign:"center"}}><div style={{fontSize:18,fontWeight:800,color:"#6D28D9"}}>{students.length}</div><div style={{fontSize:9,fontWeight:600,color:"#4C1D95"}}>生徒数</div></div>
+          </div>
+
+          {/* Student list */}
+          <div style={{display:"flex",flexDirection:"column",gap:5}}>
+            {filteredStudents.map(s=>{
+              const pc=pendingFor(s.id);const total=events.filter(e=>e.studentId===s.id).length;
+              return(
+                <div key={s.id} style={{display:"flex",alignItems:"center",gap:10,background:"#fff",borderRadius:12,padding:"10px 12px",boxShadow:"0 1px 4px rgba(0,0,0,.04)",borderLeft:`3px solid ${s.color}`}}>
+                  <button onClick={()=>{setSelStudent(s.id);setPage("calendar");}} style={{display:"flex",alignItems:"center",gap:10,flex:1,background:"none",border:"none",cursor:"pointer",fontFamily:"var(--f)",textAlign:"left",padding:0}}>
+                    <div style={{width:36,height:36,borderRadius:10,background:`${s.color}15`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18}}>{s.avatar}</div>
+                    <div>
+                      <div style={{fontSize:13,fontWeight:700,color:"#0F172A"}}>{s.name}</div>
+                      <div style={{fontSize:10,color:"#94A3B8"}}>{s.school} · {s.grade}</div>
+                    </div>
+                  </button>
+                  <div style={{textAlign:"right",fontSize:10,color:"#64748B"}}>
+                    {total}件{pc>0&&<div style={{color:"#D97706",fontWeight:700,background:"#FEF3C7",padding:"1px 6px",borderRadius:5,marginTop:2,fontSize:9}}>待ち{pc}</div>}
+                  </div>
+                  {isI&&<button onClick={()=>{setStudentForm({name:s.name,school:s.school,grade:s.grade,avatar:s.avatar,color:s.color});setShowStudentForm(s);}} style={{background:"#F1F5F9",border:"none",borderRadius:7,width:28,height:28,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:"#94A3B8"}}><I.edit/></button>}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Student selected - show nav back */}
+      {page==="home"&&selStudent&&(()=>{setPage("calendar");return null;})()}
+
+      {/* ══════════ CALENDAR PAGE ══════════ */}
+      {page==="calendar"&&(
+        <div style={{padding:"10px 14px",animation:"fadeIn .15s"}}>
+          {/* Student selector */}
+          {!isI&&<select value={selStudent||""} onChange={e=>setSelStudent(e.target.value)} style={{...inp,fontSize:12,marginBottom:8,fontWeight:600}}>{students.map(s=><option key={s.id} value={s.id}>{s.avatar} {s.name}</option>)}</select>}
+
+          {selStudent&&stObj&&isI&&(
+            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+              <button onClick={()=>{setSelStudent(null);setPage("home");}} style={{background:"none",border:"none",cursor:"pointer",color:"#4F46E5",padding:0}}><I.back/></button>
+              <div style={{width:30,height:30,borderRadius:8,background:`${stObj.color}15`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16}}>{stObj.avatar}</div>
+              <div><div style={{fontSize:13,fontWeight:800,color:"#0F172A"}}>{stObj.name}</div><div style={{fontSize:10,color:"#94A3B8"}}>{stObj.school}</div></div>
+              <div style={{marginLeft:"auto"}}>
+                {isI&&<button onClick={()=>{setForm({...form,studentId:selStudent});setShowAdd(true);}} style={{display:"flex",alignItems:"center",gap:3,background:"#4F46E5",color:"#fff",border:"none",borderRadius:8,padding:"6px 10px",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"var(--f)"}}><I.plus/> 追加</button>}
+              </div>
+            </div>
+          )}
+          {!selStudent&&isI&&(
+            <div style={{marginBottom:8}}>
+              <select value="" onChange={e=>{if(e.target.value)setSelStudent(e.target.value);}} style={{...inp,fontSize:12,fontWeight:600}}>
+                <option value="">全生徒の予定</option>
+                {students.map(s=><option key={s.id} value={s.id}>{s.avatar} {s.name}</option>)}
+              </select>
+            </div>
+          )}
+
+          {/* View toggle */}
+          <div style={{display:"flex",gap:4,marginBottom:8}}>
+            <Tab active={view==="month"} onClick={()=>setView("month")}>月</Tab>
+            <Tab active={view==="week"} onClick={()=>setView("week")}>週</Tab>
+            <Tab active={view==="list"} onClick={()=>setView("list")}>一覧</Tab>
+          </div>
+
+          {/* ── MONTH VIEW ── */}
+          {view==="month"&&(<>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+              <button onClick={prevMonth} style={{background:"#fff",border:"none",borderRadius:8,width:30,height:30,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:"#4F46E5"}}><I.chevL/></button>
+              <span style={{fontSize:14,fontWeight:800,color:"#0F172A"}}>{year}年{MONTHS_JP[month]}</span>
+              <button onClick={nextMonth} style={{background:"#fff",border:"none",borderRadius:8,width:30,height:30,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:"#4F46E5"}}><I.chevR/></button>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:1,marginBottom:2}}>
+              {DAYS_JP.map((d,i)=><div key={d} style={{textAlign:"center",fontSize:9,fontWeight:700,padding:"3px 0",color:i===0?"#EF4444":i===6?"#3B82F6":"#94A3B8"}}>{d}</div>)}
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:2}}>
+              {calCells.map((day,idx)=>{
+                if(!day)return<div key={`e${idx}`}/>;
+                const ds=fmt(year,month,day);const devs=evMap[ds]||[];
+                const isT=ds===todayStr,isSel=ds===selDate;
+                const dow=(getFD(year,month)+day-1)%7;
+                const hasP=devs.some(e=>e.status==="pending");
+                const hasSch=devs.some(e=>e.status==="school");
+                return(
+                  <button key={ds} onClick={()=>setSelDate(ds)}
+                    onDragOver={e=>{e.preventDefault();e.currentTarget.classList.add("drag-over");}}
+                    onDragLeave={e=>e.currentTarget.classList.remove("drag-over")}
+                    onDrop={e=>{e.currentTarget.classList.remove("drag-over");handleDrop(ds);}}
+                    style={{background:isSel?"#0F172A":hasSch?"#EFF6FF":isT?"#EEF2FF":"#fff",border:hasP&&!isSel?"1.5px solid #F59E0B":isT&&!isSel?"1.5px solid #A5B4FC":"1.5px solid transparent",borderRadius:10,padding:"3px 2px 2px",minHeight:44,cursor:"pointer",textAlign:"center",boxShadow:isSel?"0 2px 8px rgba(15,23,42,.2)":"none",transition:"all .12s",display:"flex",flexDirection:"column",alignItems:"center"}}>
+                    <span style={{fontSize:11,fontWeight:isT?800:600,color:isSel?"#fff":dow===0?"#EF4444":dow===6?"#3B82F6":"#334155"}}>{day}</span>
+                    <div style={{display:"flex",gap:1,marginTop:1,justifyContent:"center"}}>
+                      {devs.slice(0,4).map((ev,i)=><div key={i} style={{width:4,height:4,borderRadius:"50%",background:isSel?"rgba(255,255,255,.7)":STATUS[ev.status]?.dot||"#3B82F6"}}/>)}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+            {/* Selected date events */}
+            {selDate&&(
+              <div style={{marginTop:10,animation:"slideUp .15s"}}>
+                <div style={{fontSize:13,fontWeight:800,color:"#0F172A",marginBottom:6}}>{pD(selDate).m}月{pD(selDate).d}日 <span style={{fontWeight:500,color:"#94A3B8",fontSize:11}}>({DAYS_JP[new Date(selDate).getDay()]})</span></div>
+                {(evMap[selDate]||[]).length===0?<div style={{background:"#fff",borderRadius:12,padding:"18px",textAlign:"center",color:"#94A3B8",fontSize:12}}>予定なし</div>:(
+                  <div style={{display:"flex",flexDirection:"column",gap:5}}>
+                    {(evMap[selDate]||[]).sort((a,b)=>(a.time||"").localeCompare(b.time||"")).map((ev,i)=>{
+                      const cat=CATEGORIES[ev.category];const isSch=ev.status==="school";
+                      const st=students.find(s=>s.id===ev.studentId);
+                      return(
+                        <div key={ev.id||i} draggable={isI&&!isSch} onDragStart={()=>!isSch&&setDragEv(ev)}
+                          onClick={()=>{if(!isSch){setShowDetail(ev);setCommentDraft(ev.studentComment||"");}}}
+                          style={{background:isSch?"#EFF6FF":"#fff",border:"none",borderRadius:12,padding:"10px 12px",cursor:isSch?"default":"pointer",
+                          boxShadow:"0 1px 4px rgba(0,0,0,.04)",borderLeft:`3px solid ${cat?.color||"#3B82F6"}`,fontFamily:"var(--f)"}}>
+                          <div style={{display:"flex",justifyContent:"space-between",alignItems:"start",gap:4}}>
+                            <div style={{flex:1}}>
+                              <div style={{fontSize:13,fontWeight:700,color:"#0F172A",marginBottom:2}}>{ev.title}</div>
+                              <div style={{display:"flex",gap:4,alignItems:"center",flexWrap:"wrap"}}>
+                                <span style={{fontSize:10,color:"#64748B"}}>🕐{ev.time}{ev.endTime?`〜${ev.endTime}`:""}</span>
+                                <CatBadge cat={ev.category}/>
+                                {st&&!selStudent&&<span style={{fontSize:9,color:st.color,fontWeight:600}}>{st.avatar}{st.name}</span>}
+                              </div>
+                            </div>
+                            <Badge status={ev.status}/>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+          </>)}
+
+          {/* ── WEEK VIEW ── */}
+          {view==="week"&&(<>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+              <button onClick={prevWeek} style={{background:"#fff",border:"none",borderRadius:8,width:30,height:30,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:"#4F46E5"}}><I.chevL/></button>
+              <span style={{fontSize:12,fontWeight:700,color:"#0F172A"}}>{pD(weekDates[0]).m}月{pD(weekDates[0]).d}日 〜 {pD(weekDates[6]).m}月{pD(weekDates[6]).d}日</span>
+              <button onClick={nextWeek} style={{background:"#fff",border:"none",borderRadius:8,width:30,height:30,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:"#4F46E5"}}><I.chevR/></button>
+            </div>
+            {/* Timetable grid */}
+            <div style={{display:"grid",gridTemplateColumns:"36px repeat(7,1fr)",background:"#fff",borderRadius:12,overflow:"hidden",boxShadow:"0 1px 6px rgba(0,0,0,.04)",fontSize:9}}>
+              {/* Header */}
+              <div style={{background:"#F8FAFC",padding:"6px 0",textAlign:"center",fontWeight:600,color:"#94A3B8",borderBottom:"1px solid #E2E8F0"}}/>
+              {weekDates.map((ds,i)=>{
+                const{d}=pD(ds);const isT=ds===todayStr;
+                return<div key={ds} onClick={()=>setSelDate(ds)} style={{background:isT?"#EEF2FF":"#F8FAFC",padding:"6px 2px",textAlign:"center",fontWeight:700,color:i===0?"#EF4444":i===6?"#3B82F6":"#64748B",borderBottom:"1px solid #E2E8F0",cursor:"pointer"}}>
+                  <div>{DAYS_JP[i]}</div><div style={{fontSize:11,fontWeight:isT?900:700,color:isT?"#4F46E5":"inherit"}}>{d}</div>
+                </div>;
+              })}
+              {/* Time slots */}
+              {HOURS.map(h=>(
+                <React.Fragment key={h}>
+                  <div style={{padding:"2px 4px",textAlign:"right",color:"#CBD5E1",fontWeight:600,fontSize:8,borderRight:"1px solid #F1F5F9",height:40,display:"flex",alignItems:"start",justifyContent:"flex-end"}}>{h}:00</div>
+                  {weekDates.map((ds,di)=>{
+                    const devs=(evMap[ds]||[]).filter(e=>{
+                      if(!e.time||e.time==="終日")return false;
+                      const[eh]=e.time.split(":").map(Number);return eh===h;
+                    });
+                    return<div key={ds+h}
+                      onDragOver={e=>e.preventDefault()}
+                      onDrop={()=>handleDrop(ds)}
+                      style={{height:40,borderRight:di<6?"1px solid #F8FAFC":"none",borderBottom:"1px solid #F8FAFC",position:"relative",padding:"1px"}}>
+                      {devs.map((ev,i)=>{
+                        const cat=CATEGORIES[ev.category];const st=students.find(s=>s.id===ev.studentId);
+                        return<div key={ev.id||i}
+                          draggable={isI&&ev.status!=="school"}
+                          onDragStart={()=>setDragEv(ev)}
+                          onClick={()=>{if(ev.status!=="school"){setShowDetail(ev);setCommentDraft(ev.studentComment||"");}}}
+                          style={{background:cat?.bg||"#DBEAFE",borderRadius:4,padding:"1px 3px",fontSize:8,fontWeight:600,color:cat?.color||"#2563EB",cursor:"pointer",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",borderLeft:`2px solid ${cat?.color||"#3B82F6"}`,marginBottom:1}}>
+                          {st?st.avatar:""}{ev.title}
+                        </div>;
+                      })}
+                    </div>;
+                  })}
+                </React.Fragment>
+              ))}
+            </div>
+          </>)}
+
+          {/* ── LIST VIEW ── */}
+          {view==="list"&&(
+            <div>
+              {["pending","approved","rejected"].map(st=>{
+                const evs=allEventsForStudent.filter(e=>e.status===st).sort((a,b)=>a.date.localeCompare(b.date));
+                if(evs.length===0)return null;
+                const s=STATUS[st];
+                return<div key={st} style={{marginBottom:12}}>
+                  <div style={{fontSize:11,fontWeight:700,color:s.color,marginBottom:5}}><span style={{background:s.bg,padding:"2px 8px",borderRadius:6}}>{s.label} ({evs.length})</span></div>
+                  <div style={{display:"flex",flexDirection:"column",gap:4}}>
+                    {evs.map(ev=>{
+                      const cat=CATEGORIES[ev.category];const{m,d}=pD(ev.date);const stu=students.find(x=>x.id===ev.studentId);
+                      return<div key={ev.id} draggable={isI} onDragStart={()=>setDragEv(ev)} onClick={()=>{setShowDetail(ev);setCommentDraft(ev.studentComment||"");}} style={{background:"#fff",borderRadius:10,padding:"10px 12px",cursor:"pointer",boxShadow:"0 1px 4px rgba(0,0,0,.04)",borderLeft:`3px solid ${cat.color}`,fontFamily:"var(--f)"}}>
+                        <div style={{fontSize:12,fontWeight:700,color:"#0F172A"}}>{ev.title}</div>
+                        <div style={{display:"flex",gap:4,alignItems:"center",flexWrap:"wrap",marginTop:2}}>
+                          <span style={{fontSize:10,color:"#64748B"}}>{m}月{d}日 {ev.time}〜{ev.endTime}</span>
+                          <CatBadge cat={ev.category}/>
+                          {stu&&<span style={{fontSize:9,color:stu.color,fontWeight:600}}>{stu.avatar}{stu.name}</span>}
+                        </div>
+                      </div>;
+                    })}
+                  </div>
+                </div>;
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ══════════ STATS PAGE ══════════ */}
+      {page==="stats"&&(
+        <div style={{padding:"12px 14px",animation:"fadeIn .15s"}}>
+          <h2 style={{fontSize:15,fontWeight:800,color:"#0F172A",margin:"0 0 10px"}}>📊 レッスン統計</h2>
+          {(selStudent?[students.find(s=>s.id===selStudent)].filter(Boolean):students).map(s=>{
+            const st=statsFor(s.id);
+            const maxCat=Object.entries(st.byCat).sort((a,b)=>b[1]-a[1])[0];
+            return<div key={s.id} style={{background:"#fff",borderRadius:14,padding:"14px",marginBottom:8,boxShadow:"0 1px 6px rgba(0,0,0,.04)",borderLeft:`3px solid ${s.color}`}}>
+              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
+                <span style={{fontSize:18}}>{s.avatar}</span>
+                <div><div style={{fontSize:13,fontWeight:700,color:"#0F172A"}}>{s.name}</div><div style={{fontSize:10,color:"#94A3B8"}}>{s.school} · {s.grade}</div></div>
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:4,marginBottom:8}}>
+                <div style={{background:"#F8FAFC",borderRadius:8,padding:"6px",textAlign:"center"}}><div style={{fontSize:16,fontWeight:800,color:"#0F172A"}}>{st.total}</div><div style={{fontSize:8,color:"#94A3B8",fontWeight:600}}>総予定</div></div>
+                <div style={{background:"#D1FAE5",borderRadius:8,padding:"6px",textAlign:"center"}}><div style={{fontSize:16,fontWeight:800,color:"#059669"}}>{st.approved}</div><div style={{fontSize:8,color:"#065F46",fontWeight:600}}>確定</div></div>
+                <div style={{background:"#FEF3C7",borderRadius:8,padding:"6px",textAlign:"center"}}><div style={{fontSize:16,fontWeight:800,color:"#D97706"}}>{st.pending}</div><div style={{fontSize:8,color:"#92400E",fontWeight:600}}>待ち</div></div>
+                <div style={{background:"#EDE9FE",borderRadius:8,padding:"6px",textAlign:"center"}}><div style={{fontSize:16,fontWeight:800,color:"#6D28D9"}}>{st.totalHrs}h</div><div style={{fontSize:8,color:"#4C1D95",fontWeight:600}}>実施時間</div></div>
+              </div>
+              {/* Category breakdown bar */}
+              <div style={{display:"flex",gap:2,height:6,borderRadius:3,overflow:"hidden",background:"#F1F5F9"}}>
+                {Object.entries(st.byCat).map(([k,v])=><div key={k} style={{flex:v,background:CATEGORIES[k]?.color||"#94A3B8",borderRadius:3}} title={`${CATEGORIES[k]?.label}: ${v}件`}/>)}
+              </div>
+              <div style={{display:"flex",gap:6,marginTop:6,flexWrap:"wrap"}}>
+                {Object.entries(st.byCat).map(([k,v])=><span key={k} style={{fontSize:9,color:"#64748B"}}><span style={{display:"inline-block",width:6,height:6,borderRadius:2,background:CATEGORIES[k]?.color,marginRight:2}}/>{CATEGORIES[k]?.label} {v}</span>)}
+              </div>
+            </div>;
+          })}
+        </div>
+      )}
+
+      {/* ══════════ CHAT PAGE ══════════ */}
+      {page==="chat"&&(
+        <div style={{padding:"10px 14px",animation:"fadeIn .15s",display:"flex",flexDirection:"column",height:"calc(100vh - 130px)"}}>
+          <select value={selStudent||""} onChange={e=>setSelStudent(e.target.value)} style={{...inp,fontSize:12,marginBottom:8,fontWeight:600}}>
+            <option value="">生徒を選択...</option>
+            {students.map(s=><option key={s.id} value={s.id}>{s.avatar} {s.name}</option>)}
+          </select>
+          {selStudent?(
+            <>
+              <div style={{flex:1,overflow:"auto",display:"flex",flexDirection:"column",gap:6,padding:"4px 0"}}>
+                {studentMsgs.length===0&&<div style={{textAlign:"center",color:"#94A3B8",fontSize:12,padding:20}}>メッセージはまだありません</div>}
+                {studentMsgs.map(m=>{
+                  const isMe=(isI&&m.from==="instructor")||(!isI&&m.from==="student");
+                  return<div key={m.id} style={{display:"flex",justifyContent:isMe?"flex-end":"flex-start"}}>
+                    <div style={{maxWidth:"78%",background:isMe?"#4F46E5":"#fff",color:isMe?"#fff":"#0F172A",borderRadius:isMe?"14px 14px 4px 14px":"14px 14px 14px 4px",padding:"8px 12px",fontSize:13,lineHeight:1.5,boxShadow:"0 1px 4px rgba(0,0,0,.06)"}}>
+                      {m.text}
+                      <div style={{fontSize:9,opacity:.6,marginTop:3,textAlign:"right"}}>{new Date(m.time).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"})}</div>
+                    </div>
+                  </div>;
+                })}
+              </div>
+              <div style={{display:"flex",gap:6,paddingTop:8}}>
+                <input value={chatInput} onChange={e=>setChatInput(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")sendMsg();}} placeholder="メッセージを入力..." style={{...inp,flex:1,fontSize:13}}/>
+                <button onClick={sendMsg} style={{background:"#4F46E5",color:"#fff",border:"none",borderRadius:10,width:40,height:40,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer"}}><I.send/></button>
+              </div>
+            </>
+          ):<div style={{textAlign:"center",color:"#94A3B8",fontSize:12,padding:40}}>生徒を選択してください</div>}
+        </div>
+      )}
+
+      {/* ══ ADD EVENT MODAL ══ */}
+      <Modal isOpen={showAdd} onClose={()=>setShowAdd(false)} title="📅 予定を作成">
+        <div style={{display:"flex",flexDirection:"column",gap:10}}>
+          {!selStudent&&<div><label style={lbl}>生徒</label><select value={form.studentId} onChange={e=>setForm(p=>({...p,studentId:e.target.value}))} style={{...inp,cursor:"pointer"}}>{students.map(s=><option key={s.id} value={s.id}>{s.avatar} {s.name}</option>)}</select></div>}
+          <div><label style={lbl}>タイトル</label><input style={inp} placeholder="例: 英語レッスン" value={form.title} onChange={e=>setForm(p=>({...p,title:e.target.value}))}/></div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
+            <div><label style={lbl}>開始</label><input type="time" style={inp} value={form.time} onChange={e=>setForm(p=>({...p,time:e.target.value}))}/></div>
+            <div><label style={lbl}>終了</label><input type="time" style={inp} value={form.endTime} onChange={e=>setForm(p=>({...p,endTime:e.target.value}))}/></div>
+          </div>
+          <div>
+            <label style={lbl}>カテゴリ</label>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:4}}>
+              {Object.entries(CATEGORIES).filter(([k])=>k!=="school").map(([k,c])=>(
+                <button key={k} onClick={()=>setForm(p=>({...p,category:k}))} style={{padding:"6px 2px",borderRadius:8,border:form.category===k?`2px solid ${c.color}`:"2px solid #E2E8F0",background:form.category===k?c.bg:"#fff",color:form.category===k?c.color:"#64748B",fontSize:10,fontWeight:600,cursor:"pointer",fontFamily:"var(--f)"}}>{c.icon}{c.label}</button>
+              ))}
+            </div>
+          </div>
+          {/* Repeat */}
+          <div>
+            <label style={{...lbl,display:"flex",alignItems:"center",gap:4}}><I.repeat/> 繰り返し</label>
+            <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
+              {[{v:0,l:"なし"},{v:1,l:"2週"},{v:3,l:"4週"},{v:7,l:"8週"},{v:11,l:"12週"}].map(r=>(
+                <button key={r.v} onClick={()=>setForm(p=>({...p,repeatWeeks:r.v}))} style={{padding:"5px 10px",borderRadius:7,border:form.repeatWeeks===r.v?"2px solid #4F46E5":"2px solid #E2E8F0",background:form.repeatWeeks===r.v?"#EEF2FF":"#fff",color:form.repeatWeeks===r.v?"#4F46E5":"#64748B",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"var(--f)"}}>{r.l}</button>
+              ))}
+            </div>
+            {form.repeatWeeks>0&&<div style={{fontSize:10,color:"#4F46E5",marginTop:4}}>📅 {selDate}から毎週、計{form.repeatWeeks+1}回分作成されます</div>}
+          </div>
+          <div><label style={lbl}>メモ</label><textarea style={{...inp,minHeight:40,resize:"vertical"}} placeholder="連絡事項..." value={form.note} onChange={e=>setForm(p=>({...p,note:e.target.value}))}/></div>
+          <button onClick={addEvent} disabled={!form.title.trim()} style={{width:"100%",padding:"12px 0",borderRadius:12,border:"none",background:form.title.trim()?"linear-gradient(135deg,#4F46E5,#6366F1)":"#E2E8F0",color:form.title.trim()?"#fff":"#94A3B8",fontSize:13,fontWeight:700,cursor:form.title.trim()?"pointer":"default",fontFamily:"var(--f)",boxShadow:form.title.trim()?"0 4px 12px rgba(79,70,229,.25)":"none"}}>予定を作成{form.repeatWeeks>0?`（${form.repeatWeeks+1}回分）`:""}</button>
+        </div>
+      </Modal>
+
+      {/* ══ EDIT EVENT MODAL ══ */}
+      <Modal isOpen={!!showEdit} onClose={()=>setShowEdit(null)} title="✏️ 予定を編集">
+        <div style={{display:"flex",flexDirection:"column",gap:10}}>
+          <div><label style={lbl}>タイトル</label><input style={inp} value={form.title} onChange={e=>setForm(p=>({...p,title:e.target.value}))}/></div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
+            <div><label style={lbl}>開始</label><input type="time" style={inp} value={form.time} onChange={e=>setForm(p=>({...p,time:e.target.value}))}/></div>
+            <div><label style={lbl}>終了</label><input type="time" style={inp} value={form.endTime} onChange={e=>setForm(p=>({...p,endTime:e.target.value}))}/></div>
+          </div>
+          <div><label style={lbl}>メモ</label><textarea style={{...inp,minHeight:40,resize:"vertical"}} value={form.note} onChange={e=>setForm(p=>({...p,note:e.target.value}))}/></div>
+          <div style={{fontSize:10,color:"#D97706",background:"#FEF3C7",padding:"8px 10px",borderRadius:8}}>⚠️ 編集すると再承認が必要になります</div>
+          <button onClick={updateEvent} disabled={!form.title.trim()} style={{width:"100%",padding:"12px 0",borderRadius:12,border:"none",background:form.title.trim()?"linear-gradient(135deg,#4F46E5,#6366F1)":"#E2E8F0",color:form.title.trim()?"#fff":"#94A3B8",fontSize:13,fontWeight:700,cursor:form.title.trim()?"pointer":"default",fontFamily:"var(--f)"}}>保存</button>
+        </div>
+      </Modal>
+
+      {/* ══ DETAIL MODAL ══ */}
+      <Modal isOpen={!!showDetail} onClose={()=>setShowDetail(null)} title="予定の詳細">
+        {showDetail&&(()=>{
+          const ev=showDetail;const cat=CATEGORIES[ev.category];const{m,d}=pD(ev.date);
+          const st=students.find(s=>s.id===ev.studentId);
+          return(<div style={{display:"flex",flexDirection:"column",gap:10}}>
+            <div style={{background:cat?.bg||"#F1F5F9",borderRadius:12,padding:"14px 12px"}}>
+              <div style={{fontSize:16,fontWeight:900,color:"#0F172A",marginBottom:4}}>{cat?.icon} {ev.title}</div>
+              <div style={{display:"flex",gap:8,flexWrap:"wrap",fontSize:11,color:"#475569"}}>
+                <span>📅 {m}月{d}日({DAYS_JP[new Date(ev.date).getDay()]})</span>
+                <span>🕐 {ev.time}〜{ev.endTime}</span>
+              </div>
+              {st&&<div style={{marginTop:4,fontSize:11,color:"#475569"}}>{st.avatar} {st.name}</div>}
+            </div>
+            <div style={{display:"flex",gap:6,alignItems:"center"}}><span style={{fontSize:11,fontWeight:600,color:"#64748B"}}>状態:</span><Badge status={ev.status}/></div>
+            {ev.note&&<div style={{background:"#F8FAFC",borderRadius:10,padding:"8px 12px"}}><div style={{fontSize:10,fontWeight:600,color:"#94A3B8",marginBottom:2}}>📋 メモ</div><div style={{fontSize:12,color:"#334155",lineHeight:1.4}}>{ev.note}</div></div>}
+            {ev.studentComment&&<div style={{background:"#ECFEFF",borderRadius:10,padding:"8px 12px",border:"1px solid #A5F3FC"}}><div style={{fontSize:10,fontWeight:600,color:"#0891B2",marginBottom:2}}>🎓 生徒コメント</div><div style={{fontSize:12,color:"#134E4A"}}>{ev.studentComment}</div></div>}
+            {!isI&&ev.status==="pending"&&(
+              <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                <textarea style={{...inp,minHeight:36,resize:"vertical"}} placeholder="コメント（任意）" value={commentDraft} onChange={e=>setCommentDraft(e.target.value)}/>
+                <div style={{display:"flex",gap:6}}>
+                  <button onClick={()=>{approveEv(ev.id);setShowDetail({...ev,status:"approved",studentComment:commentDraft});}} style={{flex:1,padding:"10px 0",borderRadius:10,border:"none",background:"#10B981",color:"#fff",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"var(--f)"}}>✅ 承認</button>
+                  <button onClick={()=>{rejectEv(ev.id);setShowDetail({...ev,status:"rejected",studentComment:commentDraft});}} style={{flex:1,padding:"10px 0",borderRadius:10,border:"none",background:"#EF4444",color:"#fff",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"var(--f)"}}>✕ 却下</button>
+                </div>
+              </div>
+            )}
+            {isI&&ev.status==="pending"&&<div style={{fontSize:10,color:"#D97706",background:"#FEF3C7",padding:"6px 10px",borderRadius:7,textAlign:"center"}}>⏳ 承認待ち</div>}
+            {isI&&(
+              <div style={{display:"flex",gap:6}}>
+                <button onClick={()=>{setForm({title:ev.title,time:ev.time,endTime:ev.endTime,category:ev.category,note:ev.note,studentId:ev.studentId,repeatWeeks:0});setShowEdit(ev);setShowDetail(null);}} style={{flex:1,padding:"9px 0",borderRadius:10,border:"1px solid #E2E8F0",background:"#F8FAFC",color:"#4F46E5",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"var(--f)",display:"flex",alignItems:"center",justifyContent:"center",gap:4}}><I.edit/> 編集</button>
+                <button onClick={()=>deleteEvent(ev.id)} style={{flex:1,padding:"9px 0",borderRadius:10,border:"1px solid #FEE2E2",background:"#FFF5F5",color:"#EF4444",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"var(--f)",display:"flex",alignItems:"center",justifyContent:"center",gap:4}}><I.trash/> 削除</button>
+              </div>
+            )}
+          </div>);
+        })()}
+      </Modal>
+
+      {/* ══ STUDENT FORM MODAL ══ */}
+      <Modal isOpen={!!showStudentForm} onClose={()=>setShowStudentForm(null)} title={showStudentForm==="add"?"🎓 生徒を追加":"🎓 生徒を編集"}>
+        <div style={{display:"flex",flexDirection:"column",gap:10}}>
+          <div><label style={lbl}>名前</label><input style={inp} placeholder="山田 太郎" value={studentForm.name} onChange={e=>setStudentForm(p=>({...p,name:e.target.value}))}/></div>
+          <div><label style={lbl}>学校名</label><input style={inp} placeholder="市立第一中学校" value={studentForm.school} onChange={e=>setStudentForm(p=>({...p,school:e.target.value}))}/></div>
+          <div><label style={lbl}>学年</label><input style={inp} placeholder="中2" value={studentForm.grade} onChange={e=>setStudentForm(p=>({...p,grade:e.target.value}))}/></div>
+          <div>
+            <label style={lbl}>アイコン</label>
+            <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
+              {AVATARS.map(a=><button key={a} onClick={()=>setStudentForm(p=>({...p,avatar:a}))} style={{width:34,height:34,borderRadius:8,border:studentForm.avatar===a?"2px solid #4F46E5":"2px solid #E2E8F0",background:studentForm.avatar===a?"#EEF2FF":"#fff",fontSize:18,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>{a}</button>)}
+            </div>
+          </div>
+          <div>
+            <label style={lbl}>テーマカラー</label>
+            <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
+              {COLORS.map(c=><button key={c} onClick={()=>setStudentForm(p=>({...p,color:c}))} style={{width:28,height:28,borderRadius:7,background:c,border:studentForm.color===c?"3px solid #0F172A":"3px solid transparent",cursor:"pointer"}}/>)}
+            </div>
+          </div>
+          <button onClick={saveStudent} disabled={!studentForm.name.trim()} style={{width:"100%",padding:"12px 0",borderRadius:12,border:"none",background:studentForm.name.trim()?"linear-gradient(135deg,#4F46E5,#6366F1)":"#E2E8F0",color:studentForm.name.trim()?"#fff":"#94A3B8",fontSize:13,fontWeight:700,cursor:studentForm.name.trim()?"pointer":"default",fontFamily:"var(--f)"}}>保存</button>
+          {showStudentForm!=="add"&&showStudentForm?.id&&(
+            <button onClick={()=>deleteStudent(showStudentForm.id)} style={{width:"100%",padding:"10px 0",borderRadius:10,border:"2px solid #FEE2E2",background:"#FFF5F5",color:"#EF4444",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"var(--f)"}}>🗑 この生徒を削除</button>
+          )}
+        </div>
+      </Modal>
+    </div>
+  );
+}
